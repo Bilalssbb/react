@@ -161,7 +161,7 @@ export default {
      * @param {Node<Identifier>} ident
      */
     function addUseEventViolation(scope, ident) {
-      const scopedViolations = useEventViolations.get(scope) ?? new Set();
+      const scopedViolations = useEventViolations.get(scope) || new Set();
       if (useEventViolations.has(scope)) {
         scopedViolations.add(ident);
       } else {
