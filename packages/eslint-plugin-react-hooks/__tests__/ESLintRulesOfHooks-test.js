@@ -449,6 +449,7 @@ const tests = {
       }
     `,
     `
+      // Valid because onClick is invoked via call or apply
       function MyComponent({ theme }) {
         const onClick = useEvent(() => {
           showNotification(theme);
@@ -460,6 +461,7 @@ const tests = {
       }
     `,
     `
+      // Valid because onClick is hoisted and invoked
       function MyComponent({ theme }) {
         function Child() {
           return <Foo onClick={() => onClick()} />;
@@ -469,6 +471,14 @@ const tests = {
         });
         return <Child />;
       }
+    `,
+    `
+      const MyComponent = ({theme}) => {
+        const onClick = useEvent(() => {
+          showNotification(theme);
+        });
+        return <Child onClick={() => onClick()}></Child>;
+      };
     `,
   ],
   invalid: [
@@ -1048,6 +1058,7 @@ const tests = {
     },
     {
       code: `
+        // Invalid because onClick is not invoked
         function MyComponent({ theme }) {
           const onClick = useEvent(() => {
             showNotification(theme);
@@ -1059,6 +1070,7 @@ const tests = {
     },
     {
       code: `
+        // Invalid because onClick is not invoked
         function MyComponent({ theme }) {
           function Child() {
             return <Foo onClick={onClick} />;
@@ -1067,6 +1079,37 @@ const tests = {
             showNotification(theme);
           });
           return <Child />;
+        }
+      `,
+      errors: [useEventError('onClick')],
+    },
+    {
+      code: `
+        // This should error even though it shares an identifier name with the below
+        function MyComponent({theme}) {
+          const onClick = useEvent(() => {
+            showNotification(theme)
+          });
+          return <Child onClick={onClick} />
+        }
+
+        // The useEvent function shares an identifier name with the above
+        function MyOtherComponent({theme}) {
+          const onClick = useEvent(() => {
+            showNotification(theme)
+          });
+          return <Child onClick={() => onClick()} />
+        }
+      `,
+      errors: [{...useEventError('onClick'), line: 4, column: 17}],
+    },
+    {
+      code: `
+        const MyComponent = ({ theme }) => {
+          const onClick = useEvent(() => {
+            showNotification(theme);
+          });
+          return <Child onClick={onClick}></Child>;
         }
       `,
       errors: [useEventError('onClick')],

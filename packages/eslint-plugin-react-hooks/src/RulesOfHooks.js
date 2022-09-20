@@ -109,6 +109,10 @@ function isUseEventIdentifier(node) {
   );
 }
 
+function isUseEffectIdentifier(node) {
+  return node.type === 'Identifier' && node.name === 'useEffect';
+}
+
 function isUseEventVariableDeclarator(node) {
   return (
     node.type === 'VariableDeclarator' &&
@@ -133,13 +137,38 @@ export default {
     const codePathSegmentStack = [];
     const useEventViolations = new Map();
 
-    function addUseEventViolation(ident) {
-      useEventViolations.set(ident.name, ident);
+    function addAllUseEventViolations(scope, node) {
+      traverse(context, node, childNode => {
+        if (isUseEventVariableDeclarator(childNode)) {
+          addUseEventViolation(scope, childNode.id);
+        }
+      });
     }
 
-    function resolveUseEventViolation(ident) {
-      if (useEventViolations.has(ident.name)) {
-        useEventViolations.set(ident.name, null);
+    function addUseEventViolation(scope, ident) {
+      const scopedViolations = useEventViolations.get(scope) ?? new Set();
+      if (useEventViolations.has(scope)) {
+        scopedViolations.add(ident);
+      } else {
+        scopedViolations.add(ident);
+        useEventViolations.set(scope, scopedViolations);
+      }
+    }
+
+    function resolveUseEventViolation(scope, ident) {
+      if (scope.references == null) return;
+      for (const ref of scope.references) {
+        if (ref.resolved == null) continue;
+        // Look up the referenced variables used in the current scope, and record that we invoked
+        // a useEvent created function against its scope.
+        const scopedViolations = useEventViolations.get(ref.resolved.scope);
+        if (scopedViolations == null) continue;
+        if (scopedViolations.size === 0) break; // All violations have been resolved
+        const [useEventFunctionIdentifier] = ref.resolved.identifiers;
+        if (ident.name === useEventFunctionIdentifier.name) {
+          scopedViolations.delete(useEventFunctionIdentifier);
+          break;
+        }
       }
     }
 
@@ -554,17 +583,20 @@ export default {
           reactHooks.push(node.callee);
         }
 
+        const scope = context.getScope();
         // useEvent: Resolve a function created with useEvent that is invoked locally at least once.
         // OK - onClick();
-        resolveUseEventViolation(node.callee);
+        if (!isUseEventIdentifier(node.callee)) {
+          resolveUseEventViolation(scope, node.callee);
+        }
 
         // useEvent: useEvent functions can be passed by reference within useEffect.
         // OK - useEffect(() => { ...onClick... }, []);
-        if (node.callee.name === 'useEffect' && node.arguments.length > 0) {
+        if (isUseEffectIdentifier(node.callee) && node.arguments.length > 0) {
           // Subtraverse here so we don't need to visit every Identifier node.
           traverse(context, node, childNode => {
             if (childNode.type === 'Identifier') {
-              resolveUseEventViolation(childNode);
+              resolveUseEventViolation(scope, childNode);
             }
           });
         }
@@ -574,35 +606,42 @@ export default {
         // useEvent: weird, but OK.
         // OK - onClick.{call,apply}(...);
         if (node.property.name === 'call' || node.property.name === 'apply') {
-          resolveUseEventViolation(node.object);
+          resolveUseEventViolation(context.getScope(), node.object);
         }
       },
 
-      Program(node) {
-        // useEvent: First pass to record all definitions of useEvent functions. This needs to run
-        // prior to the second pass so a subtraversal is necessary here.
-        traverse(context, node, childNode => {
-          // const onClick = useEvent(() => ...);
-          if (isUseEventVariableDeclarator(childNode)) {
-            addUseEventViolation(childNode.id);
-          }
-        });
+      FunctionDeclaration(node) {
+        // useEvent: First pass to record all definitions of useEvent functions. We do this here
+        // rather than in the Program visitor because we can rely on the assumption that useEvent
+        // functions can only be declared within a component or hook.
+        // function MyComponent() { const onClick = useEvent(...) }
+        if (isInsideComponentOrHook(node)) {
+          addAllUseEventViolations(context.getScope(), node);
+        }
+      },
+
+      ArrowFunctionExpression(node) {
+        // useEvent: First pass to record all definitions of useEvent functions. We do this here
+        // rather than in the Program visitor because we can rely on the assumption that useEvent
+        // functions can only be declared within a component or hook.
+        // const MyComponent = () => { const onClick = useEvent(...) }
+        if (isInsideComponentOrHook(node)) {
+          addAllUseEventViolations(context.getScope(), node);
+        }
       },
 
       'Program:exit'(_node) {
-        for (const node of useEventViolations.values()) {
-          if (node == null) {
-            // Violation was resolved.
-            continue;
+        for (const scopedViolations of useEventViolations.values()) {
+          for (const node of scopedViolations) {
+            context.report({
+              node,
+              message:
+                'Functions created with React Hook "useEvent" must be invoked locally in the ' +
+                `component it's defined in. \`${context.getSource(
+                  node,
+                )}\` is a useEvent function that is being passed by reference.`,
+            });
           }
-          context.report({
-            node,
-            message:
-              'Functions created with React Hook "useEvent" must be invoked locally in the ' +
-              `component it's defined in. \`${context.getSource(
-                node,
-              )}\` is a useEvent function that is being passed by reference.`,
-          });
         }
       },
     };
