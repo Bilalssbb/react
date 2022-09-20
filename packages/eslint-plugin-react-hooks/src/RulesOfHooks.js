@@ -135,37 +135,21 @@ export default {
   create(context) {
     const codePathReactHooksMapStack = [];
     const codePathSegmentStack = [];
-    const useEventViolations = new Map();
+    const useEventViolations = new Set();
 
     /**
-     * For a given AST node, traverse into it and add all useEvent definitions, namespaced by the
-     * scope in which the definition was created. We can do this in non-Program nodes because we can
-     * rely on the assumption that useEvent functions can only be declared within a component or
-     * hook.
+     * For a given AST node, traverse into it and add all useEvent definitions. We can do this in
+     * non-Program nodes because we can rely on the assumption that useEvent functions can only be
+     * declared within a component or hook.
      *
-     * @param {Scope} scope https://eslint.org/docs/latest/developer-guide/scope-manager-interface#scope-interface
      * @param {Node} node
      */
-    function addAllUseEventViolations(scope, node) {
+    function addAllUseEventViolations(node) {
       traverse(context, node, childNode => {
         if (isUseEventVariableDeclarator(childNode)) {
-          addUseEventViolation(scope, childNode.id);
+          useEventViolations.add(childNode.id);
         }
       });
-    }
-
-    /**
-     * Add a single useEvent violation.
-     *
-     * @param {Scope} scope https://eslint.org/docs/latest/developer-guide/scope-manager-interface#scope-interface
-     * @param {Node<Identifier>} ident
-     */
-    function addUseEventViolation(scope, ident) {
-      const scopedViolations = useEventViolations.get(scope) || new Set();
-      scopedViolations.add(ident);
-      if (!useEventViolations.has(scope)) {
-        useEventViolations.set(scope, scopedViolations);
-      }
     }
 
     /**
@@ -175,17 +159,12 @@ export default {
      * @param {Node<Identifier>} ident
      */
     function resolveUseEventViolation(scope, ident) {
-      if (scope.references == null) return;
+      if (scope.references == null || useEventViolations.size === 0) return;
       for (const ref of scope.references) {
         if (ref.resolved == null) continue;
-        // Look up the referenced variables used in the current scope, and record that we invoked
-        // a useEvent created function against its scope.
-        const scopedViolations = useEventViolations.get(ref.resolved.scope);
-        if (scopedViolations == null) continue;
-        if (scopedViolations.size === 0) break; // All violations have been resolved
         const [useEventFunctionIdentifier] = ref.resolved.identifiers;
         if (ident.name === useEventFunctionIdentifier.name) {
-          scopedViolations.delete(useEventFunctionIdentifier);
+          useEventViolations.delete(useEventFunctionIdentifier);
           break;
         }
       }
@@ -632,29 +611,27 @@ export default {
       FunctionDeclaration(node) {
         // function MyComponent() { const onClick = useEvent(...) }
         if (isInsideComponentOrHook(node)) {
-          addAllUseEventViolations(context.getScope(), node);
+          addAllUseEventViolations(node);
         }
       },
 
       ArrowFunctionExpression(node) {
         // const MyComponent = () => { const onClick = useEvent(...) }
         if (isInsideComponentOrHook(node)) {
-          addAllUseEventViolations(context.getScope(), node);
+          addAllUseEventViolations(node);
         }
       },
 
       'Program:exit'(_node) {
-        for (const scopedViolations of useEventViolations.values()) {
-          for (const node of scopedViolations) {
-            context.report({
-              node,
-              message:
-                'Functions created with React Hook "useEvent" must be invoked locally in the ' +
-                `component it's defined in. \`${context.getSource(
-                  node,
-                )}\` is a useEvent function that is being passed by reference.`,
-            });
-          }
+        for (const node of useEventViolations.values()) {
+          context.report({
+            node,
+            message:
+              'Functions created with React Hook "useEvent" must be invoked locally in the ' +
+              `component it's defined in. \`${context.getSource(
+                node,
+              )}\` is a useEvent function that is being passed by reference.`,
+          });
         }
       },
     };
