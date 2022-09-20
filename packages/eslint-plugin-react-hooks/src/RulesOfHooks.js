@@ -162,10 +162,8 @@ export default {
      */
     function addUseEventViolation(scope, ident) {
       const scopedViolations = useEventViolations.get(scope) || new Set();
-      if (useEventViolations.has(scope)) {
-        scopedViolations.add(ident);
-      } else {
-        scopedViolations.add(ident);
+      scopedViolations.add(ident);
+      if (!useEventViolations.has(scope)) {
         useEventViolations.set(scope, scopedViolations);
       }
     }
