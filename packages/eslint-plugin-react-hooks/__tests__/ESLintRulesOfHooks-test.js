@@ -461,7 +461,8 @@ const tests = {
       }
     `,
     `
-      // Valid because onClick is hoisted and invoked
+      // Valid because onClick is invoked, and is created in MyComponent's environment prior to
+      // invocation
       function MyComponent({ theme }) {
         function Child() {
           return <Foo onClick={() => onClick()} />;
@@ -1101,7 +1102,7 @@ const tests = {
           return <Child onClick={() => onClick()} />
         }
       `,
-      errors: [{...useEventError('onClick'), line: 4, column: 17}],
+      errors: [{...useEventError('onClick'), line: 4}],
     },
     {
       code: `

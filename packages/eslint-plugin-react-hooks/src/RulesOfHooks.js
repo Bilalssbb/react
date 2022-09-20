@@ -137,6 +137,15 @@ export default {
     const codePathSegmentStack = [];
     const useEventViolations = new Map();
 
+    /**
+     * For a given AST node, traverse into it and add all useEvent definitions, namespaced by the
+     * scope in which the definition was created. We can do this in non-Program nodes because we can
+     * rely on the assumption that useEvent functions can only be declared within a component or
+     * hook.
+     *
+     * @param {Scope} scope https://eslint.org/docs/latest/developer-guide/scope-manager-interface#scope-interface
+     * @param {Node} node
+     */
     function addAllUseEventViolations(scope, node) {
       traverse(context, node, childNode => {
         if (isUseEventVariableDeclarator(childNode)) {
@@ -145,6 +154,12 @@ export default {
       });
     }
 
+    /**
+     * Add a single useEvent violation.
+     *
+     * @param {Scope} scope https://eslint.org/docs/latest/developer-guide/scope-manager-interface#scope-interface
+     * @param {Node<Identifier>} ident
+     */
     function addUseEventViolation(scope, ident) {
       const scopedViolations = useEventViolations.get(scope) ?? new Set();
       if (useEventViolations.has(scope)) {
@@ -155,6 +170,12 @@ export default {
       }
     }
 
+    /**
+     * Resolve a useEvent violation, ie the useEvent created function was called.
+     *
+     * @param {Scope} scope https://eslint.org/docs/latest/developer-guide/scope-manager-interface#scope-interface
+     * @param {Node<Identifier>} ident
+     */
     function resolveUseEventViolation(scope, ident) {
       if (scope.references == null) return;
       for (const ref of scope.references) {
@@ -611,9 +632,6 @@ export default {
       },
 
       FunctionDeclaration(node) {
-        // useEvent: First pass to record all definitions of useEvent functions. We do this here
-        // rather than in the Program visitor because we can rely on the assumption that useEvent
-        // functions can only be declared within a component or hook.
         // function MyComponent() { const onClick = useEvent(...) }
         if (isInsideComponentOrHook(node)) {
           addAllUseEventViolations(context.getScope(), node);
@@ -621,9 +639,6 @@ export default {
       },
 
       ArrowFunctionExpression(node) {
-        // useEvent: First pass to record all definitions of useEvent functions. We do this here
-        // rather than in the Program visitor because we can rely on the assumption that useEvent
-        // functions can only be declared within a component or hook.
         // const MyComponent = () => { const onClick = useEvent(...) }
         if (isInsideComponentOrHook(node)) {
           addAllUseEventViolations(context.getScope(), node);
