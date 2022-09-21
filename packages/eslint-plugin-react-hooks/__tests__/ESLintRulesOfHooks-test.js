@@ -481,6 +481,18 @@ const tests = {
         return <Child onClick={() => onClick()}></Child>;
       };
     `,
+    `
+      function MyComponent({ theme }) {
+        const notificationService = useNotifications();
+        const showNotification = useEvent((text) => {
+          notificationService.notify(theme, text);
+        });
+        const onClick = useEvent((text) => {
+          showNotification(text);
+        });
+        return <Child onClick={(text) => onClick(text)} />
+      }
+    `,
   ],
   invalid: [
     {
@@ -1111,6 +1123,22 @@ const tests = {
             showNotification(theme);
           });
           return <Child onClick={onClick}></Child>;
+        }
+      `,
+      errors: [useEventError('onClick')],
+    },
+    {
+      code: `
+        // Invalid because onClick is being aliased to foo but not invoked
+        function MyComponent({ theme }) {
+          const onClick = useEvent(() => {
+            showNotification(theme);
+          });
+          let foo;
+          useEffect(() => {
+            foo = onClick;
+          });
+          return <Bar onClick={foo} />
         }
       `,
       errors: [useEventError('onClick')],

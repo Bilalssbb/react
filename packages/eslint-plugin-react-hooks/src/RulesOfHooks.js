@@ -584,17 +584,24 @@ export default {
         const scope = context.getScope();
         // useEvent: Resolve a function created with useEvent that is invoked locally at least once.
         // OK - onClick();
-        if (!isUseEventIdentifier(node.callee)) {
-          resolveUseEventViolation(scope, node.callee);
-        }
+        resolveUseEventViolation(scope, node.callee);
 
-        // useEvent: useEvent functions can be passed by reference within useEffect.
+        // useEvent: useEvent functions can be passed by reference within useEffect
         // OK - useEffect(() => { ...onClick... }, []);
         if (isUseEffectIdentifier(node.callee) && node.arguments.length > 0) {
-          // Subtraverse here so we don't need to visit every Identifier node.
+          // Subtraverse here so we don't need to visit every Identifier node. Conservatively, we
+          // only resolve a useEventViolation if the useEvent function Identifier is consumed by a
+          // CallExpression (eg setInterval(onClick, 100)), with the assumption that something else
+          // will call the function later.
+          //
+          // We may want to revisit this and remove this shorthand entirely at some point.
           traverse(context, node, childNode => {
-            if (childNode.type === 'Identifier') {
-              resolveUseEventViolation(scope, childNode);
+            if (childNode.type === 'CallExpression') {
+              for (const argument of childNode.arguments) {
+                if (argument.type === 'Identifier') {
+                  resolveUseEventViolation(scope, argument);
+                }
+              }
             }
           });
         }
